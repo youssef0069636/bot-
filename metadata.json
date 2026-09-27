@@ -1,0 +1,8 @@
+{
+  "name": "Minecraft Control Center",
+  "description": "Production-ready web dashboard to monitor and control Minecraft bots and servers with AI assistant, real-time controls, task manager, and persistent runtime adapters.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

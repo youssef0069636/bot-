@@ -1,0 +1,16 @@
+{
+  "name": "minecraft-control-center-daemon",
+  "version": "1.0.0",
+  "description": "Persistent Mineflayer Bot Runtime for Minecraft Control Center",
+  "main": "standalone-daemon.js",
+  "scripts": {
+    "start": "node standalone-daemon.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "mineflayer": "^4.20.1",
+    "mineflayer-pathfinder": "^2.4.5"
+  }
+}
