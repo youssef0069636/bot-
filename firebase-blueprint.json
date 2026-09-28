@@ -1,0 +1,153 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Registered BotCloud user account profile and role information",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "user"] },
+        "status": { "type": "string", "enum": ["active", "suspended"] },
+        "createdAt": { "type": "string" },
+        "lastLoginAt": { "type": "string" }
+      },
+      "required": ["id", "email", "role", "status", "createdAt"]
+    },
+    "UserBot": {
+      "title": "UserBot",
+      "description": "Exactly ONE Minecraft bot per registered user",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "username": { "type": "string" },
+        "serverHost": { "type": "string" },
+        "serverPort": { "type": "number" },
+        "minecraftVersion": { "type": "string" },
+        "authMode": { "type": "string", "enum": ["offline", "microsoft"] },
+        "autoReconnect": { "type": "boolean" },
+        "status": { "type": "string", "enum": ["online", "offline", "connecting", "suspended", "error"] },
+        "activeSessionId": { "type": "string" },
+        "lastOnlineAt": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "username", "serverHost", "serverPort", "minecraftVersion", "status"]
+    },
+    "UserSubscription": {
+      "title": "UserSubscription",
+      "description": "Active subscription tier (Free 24h renewable, Pro 1mo, Ultra Lifetime)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "plan": { "type": "string", "enum": ["free", "pro", "ultra"] },
+        "status": { "type": "string", "enum": ["active", "expired", "suspended"] },
+        "startedAt": { "type": "string" },
+        "expiresAt": { "type": "string" },
+        "lifetime": { "type": "boolean" },
+        "paymentId": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "plan", "status", "startedAt"]
+    },
+    "BotSession": {
+      "title": "BotSession",
+      "description": "Server-side bot runtime session tracking for 24h Free timer and Pro/Ultra usage",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "botId": { "type": "string" },
+        "plan": { "type": "string", "enum": ["free", "pro", "ultra"] },
+        "startedAt": { "type": "string" },
+        "expiresAt": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "expired", "stopped"] },
+        "endedAt": { "type": "string" },
+        "endReason": { "type": "string" }
+      },
+      "required": ["id", "userId", "botId", "plan", "startedAt", "status"]
+    },
+    "PaymentRecord": {
+      "title": "PaymentRecord",
+      "description": "Manual WhatsApp payment verification records for Pro and Ultra upgrades",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "plan": { "type": "string", "enum": ["pro", "ultra"] },
+        "amount": { "type": "number" },
+        "currency": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "proofReference": { "type": "string" },
+        "whatsappSender": { "type": "string" },
+        "adminNote": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "processedAt": { "type": "string" },
+        "processedBy": { "type": "string" }
+      },
+      "required": ["id", "userId", "userEmail", "plan", "amount", "status", "createdAt"]
+    },
+    "BotLog": {
+      "title": "BotLog",
+      "description": "Console and activity log entry for a user bot",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "botId": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "level": { "type": "string" },
+        "message": { "type": "string" },
+        "source": { "type": "string" }
+      },
+      "required": ["id", "userId", "botId", "timestamp", "level", "message"]
+    },
+    "Announcement": {
+      "title": "Announcement",
+      "description": "System-wide broadcasts and notices from administrator",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "type": { "type": "string", "enum": ["info", "warning", "update", "maintenance"] },
+        "active": { "type": "boolean" },
+        "createdAt": { "type": "string" },
+        "createdBy": { "type": "string" }
+      },
+      "required": ["id", "title", "content", "type", "active", "createdAt"]
+    },
+    "SystemSetting": {
+      "title": "SystemSetting",
+      "description": "Global SaaS configuration and maintenance controls",
+      "type": "object",
+      "properties": {
+        "maintenanceMode": { "type": "boolean" },
+        "maintenanceMessage": { "type": "string" },
+        "registrationEnabled": { "type": "boolean" },
+        "freeSessionHours": { "type": "number" },
+        "proPriceDH": { "type": "number" },
+        "ultraPriceDH": { "type": "number" },
+        "maxActiveBots": { "type": "number" },
+        "supportWhatsApp": { "type": "string" }
+      }
+    },
+    "AdminAction": {
+      "title": "AdminAction",
+      "description": "Audit trail of admin operations and plan overrides",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "adminEmail": { "type": "string" },
+        "targetUserId": { "type": "string" },
+        "actionType": { "type": "string" },
+        "details": { "type": "string" },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["id", "adminEmail", "actionType", "timestamp"]
+    }
+  }
+}

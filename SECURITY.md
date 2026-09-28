@@ -1,69 +1,24 @@
-# Minecraft Control Center - Security Architecture & Threat Model
+# BOTCLOUD Security Policy & Architecture
 
-This document outlines the security architecture, threat model, authorization boundaries, and defense-in-depth principles implemented in **Minecraft Control Center**.
+## Security Principles
 
----
+1. **Authentication & Authorization**:
+   - Authentication is handled exclusively through Firebase Authentication (Email/Password, Google OAuth).
+   - Server-side admin verification: The designated permanent administrator `jeuxapk6@gmail.com` receives administrative privileges verified both in Firestore Security Rules and backend API validation.
+   - Normal users can only view and modify their own bot records, subscription records, and logs.
 
-## 1. Architectural Separation (Vercel vs. Persistent Daemon)
+2. **Server-Side Session Timers**:
+   - The 24-hour Free session timer and Pro calendar month expiration are calculated and enforced using server-side timestamps (`startedAt` and `expiresAt`).
+   - Client clock manipulation has zero effect on session expiration.
 
-Serverless execution environments (like Vercel Functions) have ephemeral execution windows (typically 10-60 seconds) and cannot maintain persistent TCP socket connections to a Minecraft server.
+3. **Safe AI Execution**:
+   - AI outputs are constrained strictly to structured JSON schemas (`move_to`, `follow_player`, `collect_item`, `mine_block`, `stop`, `chat`, `equip`).
+   - No `eval()`, arbitrary JavaScript, or raw shell commands are ever executed from AI prompt responses.
 
-Attempting to run a persistent bot inside a serverless handler leads to zombie sockets, connection drops, and potential security leaks.
+4. **Bot Hosting & Policy Safety**:
+   - BOTCLOUD is designed for compatible Minecraft servers where bot automation is permitted.
+   - No anti-idle or server bypass exploits are implemented.
 
-To resolve this safely:
-1. **Frontend & Serverless API (Vercel)**:
-   - Stateless, short-lived, immutable deployments.
-   - Enforces user session authentication, role checks, and structured command validation.
-   - Communicates with the external bot daemon via **authenticated Bearer tokens** over HTTPS/WSS.
-2. **Persistent Bot Daemon (Docker / Railway / VPS)**:
-   - Runs in an isolated container.
-   - Communicates directly with the Minecraft server over the Minecraft TCP protocol (25565).
-   - Validates incoming API keys and restricts command execution.
-
----
-
-## 2. Zero Arbitrary Code Execution (No `eval`)
-
-- **Strict Command Parser**: The AI assistant and user chat do NOT execute arbitrary JavaScript, Node `eval()`, or shell commands.
-- **Structured Action Validation**: Natural language requests from users or AI models (`gemini-3.8-flash`) must parse into a strictly typed `AIStructuredAction` schema:
-  ```json
-  {
-    "action": "move_to" | "follow_player" | "mine_block" | "collect_item" | "stop" | "chat",
-    "target": { "x": 120, "y": 64, "z": -32 }
-  }
-  ```
-- **Safety Risk Engine**:
-  - Void danger: Requests directing the bot below Y = -60 are flagged as `dangerous` to prevent fatal falling out of the world.
-  - Nether ceiling: Coordinates above Y = 127 in the Nether are flagged as `caution`.
-  - Unloaded chunks: Coordinates exceeding 500 blocks away require explicit user confirmation.
-
----
-
-## 3. Authentication & Role-Based Access Control (RBAC)
-
-Three distinct permission tiers are supported:
-1. **Admin (`admin`)**:
-   - Access to `/admin` dashboard.
-   - User role modification.
-   - Server RCON dispatch and daemon configuration.
-2. **Operator (`operator`)**:
-   - Movement controls (WASD, Jump, Sneak, Sprint).
-   - Combat, item drop, inventory management.
-   - AI Task initialization and waypoint navigation.
-3. **Viewer (`viewer`)**:
-   - Read-only telemetry, map coordinates, and log monitoring.
-
----
-
-## 4. Secret & Environment Variable Management
-
-- Private daemon keys (`BOT_API_KEY`), AI keys (`GEMINI_API_KEY`), and server RCON passwords are stored strictly in server-side environment variables.
-- No secrets are baked into client-side bundles or `VITE_` public variables.
-- In Demo / Mock Mode, the application operates purely with in-memory state without requiring any external keys.
-
----
-
-## 5. Input Sanitization & Minecraft Command Guards
-
-- All user input submitted to `/api/bot/chat` or the console is sanitized to strip malicious control characters and CRLF injection.
-- Commands starting with `/` are matched against an allowed command whitelist before dispatching to the Minecraft server or RCON gateway.
+5. **Firestore Security Rules**:
+   - Enforces user ownership (`request.auth.uid == userId`) on all collections.
+   - Admin-only write access on `systemSettings`, `announcements`, and payment decision fields.

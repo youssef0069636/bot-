@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { ServerInfo } from '../../types/minecraft';
 import { StandardServerProvider } from '../../lib/server/MinecraftServerProvider';
+import { ServerConfigView } from './ServerConfigView';
 import { sounds } from '../../lib/audio';
 
 interface ServerViewProps {
@@ -47,7 +48,6 @@ export const ServerView: React.FC<ServerViewProps> = ({ serverInfo, onRefresh })
   // Parse basic Minecraft MOTD color formatting codes (§a, §e, §6, §b, §f, §7)
   const formatMotd = (motdText: string) => {
     return motdText.split('\n').map((line, lineIdx) => {
-      // Simple color tag replacement
       const parts = line.split(/(§[0-9a-fk-or])/g);
       let currentColor = 'text-zinc-200';
 
@@ -61,9 +61,8 @@ export const ServerView: React.FC<ServerViewProps> = ({ serverInfo, onRefresh })
               else if (code === 'a') currentColor = 'text-emerald-400';
               else if (code === 'b') currentColor = 'text-cyan-400';
               else if (code === 'c') currentColor = 'text-red-400';
-              else if (code === 'd') currentColor = 'text-pink-400';
-              else if (code === '7') currentColor = 'text-zinc-400';
               else if (code === 'f') currentColor = 'text-white';
+              else currentColor = 'text-zinc-300';
               return null;
             }
             return (
@@ -79,6 +78,9 @@ export const ServerView: React.FC<ServerViewProps> = ({ serverInfo, onRefresh })
 
   return (
     <div className="space-y-6">
+      {/* 1 User = 1 Bot Server Config & Switching Component */}
+      <ServerConfigView onServerUpdated={onRefresh} />
+
       {/* Top Banner */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 rounded-xl bg-zinc-900/80 border border-zinc-800 gap-3">
         <div>

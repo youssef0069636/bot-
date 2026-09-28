@@ -318,6 +318,40 @@ export class RemoteBotAdapter implements BotAdapter {
     return res?.success || false;
   }
 
+  public async restart(): Promise<boolean> {
+    await this.disconnect();
+    await new Promise((r) => setTimeout(r, 2000));
+    return this.connect();
+  }
+
+  public getStatus(): string {
+    return this.state.status;
+  }
+
+  public getPosition() {
+    return { ...this.state.position };
+  }
+
+  public getHealth(): number {
+    return this.state.health;
+  }
+
+  public getFood(): number {
+    return this.state.food;
+  }
+
+  public getVersion(): string {
+    return this.cachedServerInfo.version || '1.20.1';
+  }
+
+  public async sendChat(message: string): Promise<boolean> {
+    return this.chat(message);
+  }
+
+  public getConsole(limit = 100): LogEntry[] {
+    return this.getLogs(limit);
+  }
+
   public async executeCommand(command: string): Promise<{ success: boolean; output: string }> {
     const res = await this.request<{ success: boolean; output: string }>('/api/bot/command', {
       method: 'POST',

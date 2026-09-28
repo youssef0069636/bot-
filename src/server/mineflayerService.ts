@@ -144,11 +144,11 @@ export class MineflayerService {
       this.options = { ...this.options, ...opts };
     }
 
-    // Protect against Paper connection-throttle (4s cooldown)
+    // Protect against Paper connection-throttle (5.5s cooldown)
     const elapsed = Date.now() - this.lastConnectTimestamp;
-    if (elapsed < 3500) {
-      const waitTime = 3500 - elapsed;
-      this.addLog('INFO', `Waiting ${Math.ceil(waitTime / 1000)}s for server throttle cooldown...`, 'system');
+    if (elapsed < 5500) {
+      const waitTime = 5500 - elapsed;
+      this.addLog('INFO', `Waiting ${Math.ceil(waitTime / 1000)}s for Paper server throttle cooldown...`, 'system');
       await new Promise((r) => setTimeout(r, waitTime));
     }
     this.lastConnectTimestamp = Date.now();
@@ -166,8 +166,9 @@ export class MineflayerService {
     }
     const username = this.options.username.trim() || 'Youssef_Bot';
     const auth = this.options.authType === 'microsoft' ? 'microsoft' : 'offline';
+    const version = this.options.version && this.options.version !== 'auto' ? this.options.version : '1.21.1';
 
-    this.addLog('INFO', `Connecting bot "${username}" to Minecraft server at ${host}:${port} (${auth} mode)...`, 'bot');
+    this.addLog('INFO', `Connecting bot "${username}" to Minecraft server at ${host}:${port} (${version}, ${auth} mode)...`, 'bot');
 
     return new Promise((resolve) => {
       let resolved = false;
@@ -195,13 +196,10 @@ export class MineflayerService {
           port,
           username,
           auth,
+          version,
           checkTimeoutInterval: 60000,
           hideErrors: false,
         };
-
-        if (this.options.version && this.options.version !== 'auto') {
-          botConfig.version = this.options.version;
-        }
 
         const bot = mineflayer.createBot(botConfig);
         this.bot = bot;
@@ -290,6 +288,16 @@ export class MineflayerService {
           this.lastDisconnectReason = reasonStr;
           this.addLog('WARN', `Bot was kicked by server: ${reasonStr}`, 'server');
           this.isConnecting = false;
+
+          if (reasonStr.includes('throttled')) {
+            this.addLog('INFO', 'Paper server connection throttle cooldown active. Auto-reconnecting in 6 seconds...', 'system');
+            setTimeout(() => {
+              if (!this.bot && !this.isConnecting) {
+                this.connect().catch(() => {});
+              }
+            }, 6000);
+          }
+
           finish(false, `Kicked by server: ${reasonStr}`);
         });
 

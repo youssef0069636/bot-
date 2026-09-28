@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Activity,
   Server,
@@ -16,14 +16,29 @@ import {
   Globe2,
   TreePine,
   RotateCcw,
+  Clock,
+  Crown,
+  AlertTriangle,
+  Megaphone,
+  Sliders,
+  Edit3,
 } from 'lucide-react';
 import { BotMode, BotState, PlayerInfo, ServerInfo } from '../../types/minecraft';
+import { UserSubscription, BotSession, Announcement } from '../../types/saas';
 import { BotAdapter } from '../../lib/bot/BotAdapter';
 import { botManager } from '../../lib/bot/BotManager';
+import { useAuth } from '../../lib/auth/authContext';
+import { RenameBotModal } from '../common/RenameBotModal';
+import {
+  getUserSubscription,
+  getActiveBotSession,
+  startBotSession,
+  endBotSession,
+} from '../../lib/saas/subscriptionService';
+import { fetchAnnouncements } from '../../lib/saas/adminService';
 import { HeartIcon, FoodIcon, ArmorIcon } from '../common/MinecraftIcons';
 import { ServerConnectionWizard } from '../common/ServerConnectionWizard';
 import { sounds } from '../../lib/audio';
-
 import { ActiveTab } from '../layout/Sidebar';
 
 interface DashboardViewProps {
@@ -43,9 +58,137 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   mode,
   onNavigateTab,
 }) => {
+  const { profile } = useAuth();
+  const [subscription, setSubscription] = useState<UserSubscription | null>(null);
+  const [activeSession, setActiveSession] = useState<BotSession | null>(null);
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [sessionTimerText, setSessionTimerText] = useState<string>('');
+  const [isStartingSession, setIsStartingSession] = useState(false);
   const [copiedCoords, setCopiedCoords] = useState(false);
-  const [isTogglingConnect, setIsTogglingConnect] = useState(false);
   const [showWizard, setShowWizard] = useState(false);
+  const [showRenameModal, setShowRenameModal] = useState(false);
+
+  useEffect(() => {
+    if (profile?.id) {
+      loadSaaSData();
+    }
+  }, [profile?.id]);
+
+  const loadSaaSData = async () => {
+    if (!profile?.id) return;
+    try {
+      const [sub, anns] = await Promise.all([
+        getUserSubscription(profile.id),
+        fetchAnnouncements(),
+      ]);
+      setSubscription(sub);
+      setAnnouncements(anns.filter((a) => a.active));
+
+      const botId = `bot_${profile.id}`;
+      const sess = await getActiveBotSession(profile.id, botId);
+      setActiveSession(sess);
+    } catch (err) {
+      console.error('Error loading dashboard SaaS data:', err);
+    }
+  };
+
+  // Live timer interval for Free 24h session / Pro expiration
+  useEffect(() => {
+    const updateCountdown = () => {
+      if (!activeSession) {
+        if (subscription?.plan === 'free') {
+          setSessionTimerText('Ready to start 24h Free session');
+        } else if (subscription?.lifetime) {
+          setSessionTimerText('Lifetime Active (Ultra Plan)');
+        } else if (subscription?.expiresAt) {
+          const diff = new Date(subscription.expiresAt).getTime() - Date.now();
+          if (diff <= 0) setSessionTimerText('Pro Plan Expired');
+          else {
+            const d = Math.floor(diff / (1000 * 60 * 60 * 24));
+            const h = Math.floor((diff / (1000 * 60 * 60)) % 24);
+            setSessionTimerText(`Pro active: ${d}d ${h}h remaining`);
+          }
+        }
+        return;
+      }
+
+      if (activeSession.status === 'expired') {
+        setSessionTimerText('24h Session Finished (Click Start to Launch Next 24h Session)');
+        return;
+      }
+
+      if (activeSession.expiresAt) {
+        const remaining = new Date(activeSession.expiresAt).getTime() - Date.now();
+        if (remaining <= 0) {
+          setSessionTimerText('24h Free Session Expired');
+          setActiveSession((prev) => (prev ? { ...prev, status: 'expired' } : null));
+          if (botState.connected) {
+            adapter.disconnect();
+          }
+        } else {
+          const h = Math.floor(remaining / (1000 * 60 * 60));
+          const m = Math.floor((remaining / (1000 * 60)) % 60);
+          const s = Math.floor((remaining / 1000) % 60);
+          setSessionTimerText(`Session: ${h}h ${m}m ${s}s remaining (24h Limit)`);
+        }
+      } else {
+        setSessionTimerText('Unlimited Session (Ultra Lifetime)');
+      }
+    };
+
+    updateCountdown();
+    const interval = setInterval(updateCountdown, 1000);
+    return () => clearInterval(interval);
+  }, [activeSession, subscription, botState.connected]);
+
+  const handleStartBot = async () => {
+    if (!profile) return;
+    sounds.click(1.2);
+    setIsStartingSession(true);
+
+    try {
+      const botId = `bot_${profile.id}`;
+      const res = await startBotSession(profile.id, botId, 24);
+
+      if (!res.success) {
+        alert(res.error || 'Failed to start session.');
+        return;
+      }
+
+      setActiveSession(res.session || null);
+      // Connect bot with latest Firestore config
+      await botManager.connectBot(profile.id);
+      sounds.chime();
+    } catch (err: any) {
+      alert(`Start error: ${err?.message || 'Try again'}`);
+    } finally {
+      setIsStartingSession(false);
+    }
+  };
+
+  const handleStopBot = async () => {
+    sounds.click();
+    setIsStartingSession(true);
+    try {
+      if (activeSession) {
+        await endBotSession(activeSession.id, 'user_stopped');
+        setActiveSession(null);
+      }
+      await adapter.disconnect();
+    } finally {
+      setIsStartingSession(false);
+    }
+  };
+
+  const handleRestartBot = async () => {
+    sounds.click(1.1);
+    setIsStartingSession(true);
+    try {
+      await adapter.restart();
+    } finally {
+      setIsStartingSession(false);
+    }
+  };
 
   const handleCopyCoords = () => {
     sounds.click();
@@ -54,20 +197,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     );
     setCopiedCoords(true);
     setTimeout(() => setCopiedCoords(false), 2000);
-  };
-
-  const handleToggleConnection = async () => {
-    sounds.click();
-    setIsTogglingConnect(true);
-    try {
-      if (botState.connected) {
-        await adapter.disconnect();
-      } else {
-        await botManager.connectBot();
-      }
-    } finally {
-      setIsTogglingConnect(false);
-    }
   };
 
   const handleStopTask = async () => {
@@ -79,7 +208,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   // Calculate compass direction (0=South, 90=West, 180=North, 270=East)
   const getCompassHeading = (yaw = 0): string => {
-    const normalized = (yaw % 360 + 360) % 360;
+    const normalized = ((yaw % 360) + 360) % 360;
     if (normalized >= 337.5 || normalized < 22.5) return 'South (+Z)';
     if (normalized >= 22.5 && normalized < 67.5) return 'South-West';
     if (normalized >= 67.5 && normalized < 112.5) return 'West (-X)';
@@ -90,7 +219,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     return 'South-East';
   };
 
-  // Render 10 hearts
   const renderHearts = () => {
     const hearts = [];
     const hp = Math.max(0, Math.min(20, botState.health));
@@ -102,197 +230,195 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       } else if (hp >= heartValue - 1) {
         type = 'half';
       }
-      hearts.push(<HeartIcon key={i} type={type} className="w-4 h-4 transition-transform hover:scale-110" />);
+      hearts.push(<HeartIcon key={i} type={type} className="w-4 h-4 inline-block" />);
     }
     return hearts;
   };
 
-  // Render 10 food drumsticks
   const renderFood = () => {
-    const drumsticks = [];
-    const hunger = Math.max(0, Math.min(20, botState.food));
+    const hunger = [];
+    const food = Math.max(0, Math.min(20, botState.food));
     for (let i = 0; i < 10; i++) {
       const foodValue = (i + 1) * 2;
       let type: 'full' | 'half' | 'empty' = 'empty';
-      if (hunger >= foodValue) {
+      if (food >= foodValue) {
         type = 'full';
-      } else if (hunger >= foodValue - 1) {
+      } else if (food >= foodValue - 1) {
         type = 'half';
       }
-      drumsticks.push(<FoodIcon key={i} type={type} className="w-4 h-4 transition-transform hover:scale-110" />);
+      hunger.push(<FoodIcon key={i} type={type} className="w-4 h-4 inline-block" />);
     }
-    return drumsticks;
-  };
-
-  // Render armor points
-  const renderArmor = () => {
-    const armorPoints = Math.round(botState.armor / 2);
-    const shields = [];
-    for (let i = 0; i < 10; i++) {
-      shields.push(
-        <div key={i} className={i < armorPoints ? 'opacity-100' : 'opacity-25'}>
-          <ArmorIcon className="w-3.5 h-3.5" />
-        </div>
-      );
-    }
-    return shields;
+    return hunger;
   };
 
   return (
     <div className="space-y-6">
-      {/* Top Banner Notice for Runtime Architecture */}
-      {mode === 'mock' ? (
-        <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/25 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
-          <div className="flex items-center gap-2.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse" />
-            <span className="text-zinc-200">
-              <strong className="text-amber-400 font-mono">وضع المحاكاة التفاعلي (DEMO MODE):</strong> البوت يعمل داخل المتصفح بمحاكاة كاملة. للاتصال بسيرفر ماينكرافت حقيقي (Aternos / Localhost / Paper)، اضغط على الزر:
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => {
-                sounds.click();
-                botManager.setMode('remote');
-                setShowWizard(true);
-              }}
-              className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-mono text-[11px] whitespace-nowrap transition-colors shadow-md"
-            >
-              الاتصال بسيرفر حقيقي (Live Server) →
-            </button>
-            <button
-              onClick={() => onNavigateTab('settings')}
-              className="px-2.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-amber-300 border border-amber-500/30 font-mono text-[11px] whitespace-nowrap transition-colors"
-            >
-              الإعدادات
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div className="p-3.5 rounded-xl bg-cyan-500/10 border border-cyan-500/25 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
-          <div className="flex items-center gap-2.5">
-            <span className={`w-2.5 h-2.5 rounded-full ${botState.connected ? 'bg-emerald-400' : 'bg-cyan-400 animate-pulse'}`} />
-            <span className="text-zinc-200">
-              <strong className="text-cyan-400 font-mono">
-                {botState.connected ? 'البوت متصل بالسيرفر بنجاح!' : 'وضع الاتصال بالسيرفر الحقيقي (LIVE MINEFLAYER):'}
-              </strong>{' '}
-              {botState.connected
-                ? `البوت متواجد حالياً في العالم عند الإحداثيات (${botState.position.x}, ${botState.position.y}, ${botState.position.z})`
-                : 'إذا واجهت مشكلة في الدخول، استخدم أداة فحص الاتصال بالأسفل للتحقق من المنفذ وحالة السيرفر.'}
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => {
-                sounds.click();
-                setShowWizard(!showWizard);
-              }}
-              className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-cyan-300 border border-zinc-700 font-mono text-[11px] whitespace-nowrap transition-colors"
-            >
-              {showWizard ? 'إخفاء أداة الفحص ▲' : 'أداة فحص الاتصال (Troubleshoot) ▼'}
-            </button>
-            <button
-              onClick={handleToggleConnection}
-              disabled={isTogglingConnect}
-              className={`px-3 py-1.5 rounded-lg font-mono text-[11px] whitespace-nowrap transition-colors ${
-                botState.connected
-                  ? 'bg-zinc-800 hover:bg-red-950 text-zinc-300 hover:text-red-400 border border-zinc-700'
-                  : 'bg-emerald-600 hover:bg-emerald-500 text-white font-medium shadow-md'
+      {/* System Announcements Banner */}
+      {announcements.length > 0 && (
+        <div className="space-y-2">
+          {announcements.map((ann) => (
+            <div
+              key={ann.id}
+              className={`p-3.5 rounded-xl border flex items-start gap-3 font-mono text-xs ${
+                ann.type === 'maintenance'
+                  ? 'bg-red-950/40 border-red-800 text-red-300'
+                  : ann.type === 'warning'
+                  ? 'bg-amber-950/40 border-amber-800 text-amber-300'
+                  : 'bg-emerald-950/40 border-emerald-800 text-emerald-300'
               }`}
             >
-              {isTogglingConnect ? 'جاري الاتصال...' : botState.connected ? 'فصل البوت (Disconnect)' : 'إدخال البوت للسيرفر (Connect)'}
-            </button>
-          </div>
+              <Megaphone className="w-4 h-4 mt-0.5 flex-shrink-0" />
+              <div>
+                <strong className="font-bold">{ann.title}</strong>: {ann.content}
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
-      {/* Expandable Server Diagnostic Wizard */}
-      {showWizard && (
-        <ServerConnectionWizard onSuccess={() => setShowWizard(false)} />
-      )}
+      {/* Hero Control Banner: Start / Stop / Restart & Subscription Countdown */}
+      <div className="p-6 rounded-2xl bg-gradient-to-r from-zinc-950 via-zinc-900 to-zinc-950 border border-zinc-800 shadow-2xl relative overflow-hidden">
+        <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6">
+          {/* Bot & Plan identity */}
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-mono font-bold flex items-center gap-1.5">
+                <Crown className="w-3.5 h-3.5 text-amber-400" /> BOTCLOUD SAAS
+              </span>
+              <span
+                className={`text-[11px] font-mono px-2 py-0.5 rounded font-bold uppercase ${
+                  subscription?.plan === 'ultra'
+                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                    : subscription?.plan === 'pro'
+                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                    : 'bg-zinc-800 text-zinc-400 border border-zinc-700'
+                }`}
+              >
+                {subscription?.plan || 'FREE'} PLAN
+              </span>
+            </div>
 
-      {/* Primary Telemetry Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Card 1: Bot Vitals & Connection */}
-        <div className="p-4 rounded-xl bg-zinc-900/80 border border-zinc-800/80 relative overflow-hidden backdrop-blur-sm">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-mono font-medium text-zinc-400 flex items-center gap-1.5">
-              <Activity className="w-3.5 h-3.5 text-emerald-400" /> BOT VITALS
-            </span>
-            <span
-              className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold uppercase ${
-                botState.connected
-                  ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                  : 'bg-red-500/20 text-red-400 border border-red-500/30'
-              }`}
-            >
-              {botState.connected ? 'ONLINE' : 'OFFLINE'}
-            </span>
+            <div className="flex items-center gap-3">
+              <h1 className="text-xl sm:text-2xl font-bold text-zinc-100 font-mono flex items-center gap-2.5">
+                {botState.username}
+                <button
+                  onClick={() => {
+                    sounds.click();
+                    setShowRenameModal(true);
+                  }}
+                  className="p-1.5 rounded-lg bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 hover:text-emerald-400 border border-zinc-700 text-xs transition-colors flex items-center gap-1"
+                  title="تغيير اسم البوت / Rename Bot"
+                >
+                  <Edit3 className="w-3.5 h-3.5" />
+                  <span className="text-[11px] hidden sm:inline">تبديل الاسم</span>
+                </button>
+              </h1>
+              <span
+                className={`text-xs px-2.5 py-0.5 rounded-full font-bold uppercase font-mono ${
+                  botState.connected
+                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                    : 'bg-zinc-800 text-zinc-400 border border-zinc-700'
+                }`}
+              >
+                {botState.connected ? '● ONLINE' : '○ OFFLINE'}
+              </span>
+            </div>
+
+            <div className="text-xs font-mono text-zinc-400 flex items-center gap-2">
+              <Clock className="w-3.5 h-3.5 text-emerald-400" />
+              <span className="text-emerald-400 font-bold">{sessionTimerText}</span>
+            </div>
           </div>
 
-          <div className="space-y-2.5">
-            {/* Health */}
-            <div>
-              <div className="flex items-center justify-between text-[11px] font-mono text-zinc-300 mb-1">
-                <span className="flex items-center gap-1">Health</span>
-                <span className="font-bold text-red-400">{botState.health} / 20</span>
-              </div>
-              <div className="flex items-center gap-0.5">{renderHearts()}</div>
-            </div>
+          {/* Primary Lifecycle Controls */}
+          <div className="flex flex-wrap items-center gap-3 font-mono">
+            {!botState.connected ? (
+              <button
+                onClick={handleStartBot}
+                disabled={isStartingSession}
+                className="px-6 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-bold text-sm flex items-center gap-2 shadow-[0_0_20px_rgba(16,185,129,0.3)] transition-all"
+              >
+                <Play className="w-4 h-4 fill-current" />
+                {isStartingSession ? 'Starting Session...' : 'START BOT (24h FREE)'}
+              </button>
+            ) : (
+              <>
+                <button
+                  onClick={handleStopBot}
+                  disabled={isStartingSession}
+                  className="px-5 py-2.5 rounded-xl bg-red-950 hover:bg-red-900 text-red-300 border border-red-800/80 font-bold text-xs flex items-center gap-2 transition-colors"
+                >
+                  <Square className="w-3.5 h-3.5" /> STOP BOT
+                </button>
+                <button
+                  onClick={handleRestartBot}
+                  disabled={isStartingSession}
+                  className="px-4 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 font-bold text-xs flex items-center gap-1.5 transition-colors"
+                >
+                  <RotateCcw className="w-3.5 h-3.5 text-cyan-400" /> RESTART
+                </button>
+              </>
+            )}
 
-            {/* Food */}
-            <div>
-              <div className="flex items-center justify-between text-[11px] font-mono text-zinc-300 mb-1">
-                <span className="flex items-center gap-1">Hunger</span>
-                <span className="font-bold text-amber-500">{botState.food} / 20</span>
-              </div>
-              <div className="flex items-center gap-0.5">{renderFood()}</div>
-            </div>
-
-            {/* Armor */}
-            <div>
-              <div className="flex items-center justify-between text-[11px] font-mono text-zinc-300 mb-1">
-                <span className="flex items-center gap-1">Armor Protection</span>
-                <span className="font-bold text-slate-300">{botState.armor} / 20</span>
-              </div>
-              <div className="flex items-center gap-1">{renderArmor()}</div>
-            </div>
-          </div>
-
-          {/* Action button */}
-          <div className="mt-4 pt-3 border-t border-zinc-800/80 flex items-center justify-between">
-            <span className="text-[11px] font-mono text-zinc-500">{botState.username}</span>
             <button
-              onClick={handleToggleConnection}
-              disabled={isTogglingConnect}
-              className={`text-xs font-mono px-2.5 py-1 rounded transition-colors ${
-                botState.connected
-                  ? 'bg-zinc-800 hover:bg-red-950/60 text-zinc-300 hover:text-red-400 border border-zinc-700'
-                  : 'bg-emerald-600 hover:bg-emerald-500 text-white font-medium shadow-md'
-              }`}
+              onClick={() => onNavigateTab('server')}
+              className="px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 font-bold text-xs flex items-center gap-1.5 transition-colors"
             >
-              {isTogglingConnect ? 'Working...' : botState.connected ? 'Disconnect' : 'Connect'}
+              <Server className="w-3.5 h-3.5 text-amber-400" /> Switch Server
             </button>
           </div>
         </div>
+      </div>
 
-        {/* Card 2: Coordinates & Navigation */}
+      {/* Top Row: 4 Metric Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Card 1: Bot Vitals */}
         <div className="p-4 rounded-xl bg-zinc-900/80 border border-zinc-800/80 relative overflow-hidden backdrop-blur-sm">
           <div className="flex items-center justify-between mb-3">
             <span className="text-xs font-mono font-medium text-zinc-400 flex items-center gap-1.5">
-              <Compass className="w-3.5 h-3.5 text-cyan-400" /> NAVIGATION COORDS
+              <Shield className="w-3.5 h-3.5 text-emerald-400" /> BOT VITALS
+            </span>
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-zinc-800 text-zinc-300 border border-zinc-700">
+              Armor: {botState.armor}/20
+            </span>
+          </div>
+
+          <div className="space-y-2">
+            <div>
+              <div className="flex items-center justify-between text-xs font-mono mb-1">
+                <span className="text-zinc-400">Health</span>
+                <span className="text-rose-400 font-bold">{botState.health} / 20</span>
+              </div>
+              <div className="flex flex-wrap gap-0.5">{renderHearts()}</div>
+            </div>
+
+            <div className="pt-2 border-t border-zinc-800/80">
+              <div className="flex items-center justify-between text-xs font-mono mb-1">
+                <span className="text-zinc-400">Food (Hunger)</span>
+                <span className="text-amber-400 font-bold">{botState.food} / 20</span>
+              </div>
+              <div className="flex flex-wrap gap-0.5">{renderFood()}</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Card 2: Coordinates & Orientation */}
+        <div className="p-4 rounded-xl bg-zinc-900/80 border border-zinc-800/80 relative overflow-hidden backdrop-blur-sm">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-xs font-mono font-medium text-zinc-400 flex items-center gap-1.5">
+              <Compass className="w-3.5 h-3.5 text-cyan-400" /> NAVIGATION
             </span>
             <button
               onClick={handleCopyCoords}
-              className="p-1 text-zinc-400 hover:text-white rounded hover:bg-zinc-800 transition-colors"
-              title="Copy /tp command"
+              className="text-[10px] font-mono px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 flex items-center gap-1 transition-colors border border-zinc-700"
+              title="Copy teleport command"
             >
-              {copiedCoords ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+              {copiedCoords ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+              {copiedCoords ? 'Copied' : 'Copy /tp'}
             </button>
           </div>
 
-          {/* XYZ Numbers */}
-          <div className="grid grid-cols-3 gap-2 font-mono text-center my-2">
+          <div className="grid grid-cols-3 gap-2 font-mono text-center">
             <div className="p-2 rounded-lg bg-zinc-950/80 border border-zinc-800">
               <span className="text-[10px] text-zinc-500 block">X</span>
               <span className="text-sm font-bold text-zinc-100">{botState.position.x}</span>
@@ -318,15 +444,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 {botState.position.yaw}° / {botState.position.pitch}°
               </span>
             </div>
-          </div>
-
-          <div className="mt-3 pt-3 border-t border-zinc-800/80 flex items-center justify-between">
-            <button
-              onClick={() => onNavigateTab('controls')}
-              className="w-full text-xs font-mono py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 transition-colors text-center"
-            >
-              Open Bot Controls →
-            </button>
           </div>
         </div>
 
@@ -384,7 +501,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <span className="text-emerald-400 font-bold">{serverInfo.tps}</span>
             </div>
             <div className="flex items-center justify-between text-zinc-400">
-              <span>Latency (Ping)</span>
+              <span>Latency</span>
               <span className="text-zinc-200 flex items-center gap-1">
                 <Wifi className="w-3 h-3 text-emerald-400" /> {botState.ping} ms
               </span>
@@ -396,62 +513,46 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </span>
             </div>
           </div>
-
-          <div className="mt-3 pt-3 border-t border-zinc-800/80">
-            <button
-              onClick={() => onNavigateTab('server')}
-              className="w-full text-xs font-mono py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 transition-colors text-center"
-            >
-              Server Details & RCON →
-            </button>
-          </div>
         </div>
       </div>
 
-      {/* Middle Row: Active Task Card & Quick Action Deck */}
+      {/* Middle Row: Active Task & Quick Actions */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Active Task Card (2 columns wide) */}
+        {/* Active Task Card */}
         <div className="lg:col-span-2 p-4 rounded-xl bg-zinc-900/80 border border-zinc-800/80">
           <div className="flex items-center justify-between mb-3">
             <span className="text-xs font-mono font-medium text-zinc-400 flex items-center gap-1.5">
-              <Zap className="w-3.5 h-3.5 text-amber-400" /> ACTIVE AUTONOMOUS TASK
+              <Zap className="w-3.5 h-3.5 text-amber-400" /> AUTONOMOUS TASK RUNNER
             </span>
-            <button
-              onClick={() => onNavigateTab('tasks')}
-              className="text-xs font-mono text-emerald-400 hover:underline"
-            >
-              Task Manager →
+            <button onClick={() => onNavigateTab('tasks')} className="text-xs font-mono text-emerald-400 hover:underline">
+              Task Deck →
             </button>
           </div>
 
           {botState.currentTask ? (
-            <div className="p-4 rounded-lg bg-zinc-950/80 border border-zinc-800 space-y-3">
+            <div className="p-4 rounded-lg bg-zinc-950/80 border border-zinc-800 space-y-3 font-mono">
               <div className="flex items-center justify-between">
                 <div>
                   <h4 className="text-sm font-semibold text-zinc-100 flex items-center gap-2">
                     {botState.currentTask.title}
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30 uppercase">
+                    <span className="text-[10px] px-2 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30 uppercase">
                       {botState.currentTask.status}
                     </span>
                   </h4>
                   <p className="text-xs text-zinc-400 mt-0.5">{botState.currentTask.lastAction || 'Processing...'}</p>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={handleStopTask}
-                    className="p-1.5 rounded bg-red-950/60 hover:bg-red-900/80 text-red-400 border border-red-800/60 text-xs transition-colors flex items-center gap-1"
-                    title="Abort Task"
-                  >
-                    <Square className="w-3.5 h-3.5" /> Stop
-                  </button>
-                </div>
+                <button
+                  onClick={handleStopTask}
+                  className="p-1.5 rounded bg-red-950/60 hover:bg-red-900/80 text-red-400 border border-red-800/60 text-xs transition-colors flex items-center gap-1"
+                >
+                  <Square className="w-3.5 h-3.5" /> Stop
+                </button>
               </div>
 
-              {/* Progress bar */}
               <div>
-                <div className="flex items-center justify-between text-xs font-mono text-zinc-400 mb-1">
-                  <span>Task Execution Progress</span>
+                <div className="flex items-center justify-between text-xs text-zinc-400 mb-1">
+                  <span>Execution Progress</span>
                   <span className="text-emerald-400 font-bold">{botState.currentTask.progress}%</span>
                 </div>
                 <div className="w-full h-2 rounded-full bg-zinc-800 overflow-hidden">
@@ -490,7 +591,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           )}
         </div>
 
-        {/* Quick Action Commands Deck */}
+        {/* Quick Action Commands */}
         <div className="p-4 rounded-xl bg-zinc-900/80 border border-zinc-800/80 flex flex-col justify-between">
           <div>
             <span className="text-xs font-mono font-medium text-zinc-400 flex items-center gap-1.5 mb-3">
@@ -532,7 +633,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 }}
                 className="p-2 rounded-lg bg-red-950/50 hover:bg-red-900/60 border border-red-800/60 text-red-200 transition-colors text-left"
               >
-                ⚔️ !clear_monsters (وحوش)
+                ⚔️ !clear_monsters
               </button>
               <button
                 onClick={() => {
@@ -552,28 +653,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               >
                 🛑 !stop (إيقاف)
               </button>
-              <button
-                onClick={() => {
-                  sounds.click();
-                  adapter.chat('!bc Helper_Bot');
-                }}
-                className="p-2 rounded-lg bg-emerald-950/50 hover:bg-emerald-900/60 border border-emerald-800/60 text-emerald-200 transition-colors text-left col-span-2"
-              >
-                🤖 نشر بوت مساعد (!botc Helper_Bot)
-              </button>
             </div>
           </div>
 
           <div className="pt-3 border-t border-zinc-800/80 mt-3 flex items-center justify-between text-[11px] font-mono text-zinc-500">
-            <span>Control Mode: {mode.toUpperCase()}</span>
+            <span>Runtime: {mode.toUpperCase()}</span>
             <button onClick={() => onNavigateTab('controls')} className="text-cyan-400 hover:underline">
-              Touch/Keypad →
+              WASD Controls →
             </button>
           </div>
         </div>
       </div>
 
-      {/* Bottom Row: Nearby Players Preview */}
+      {/* Players Radar preview */}
       <div className="p-4 rounded-xl bg-zinc-900/80 border border-zinc-800/80">
         <div className="flex items-center justify-between mb-3">
           <span className="text-xs font-mono font-medium text-zinc-400 flex items-center gap-1.5">
@@ -588,15 +680,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           {players.slice(0, 5).map((player) => (
             <div
               key={player.uuid}
-              className="p-3 rounded-lg bg-zinc-950/70 border border-zinc-800/80 flex items-center justify-between text-xs"
+              className="p-3 rounded-lg bg-zinc-950/70 border border-zinc-800/80 flex items-center justify-between text-xs font-mono"
             >
               <div className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center font-mono font-bold text-emerald-400 text-xs">
+                <div className="w-7 h-7 rounded bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center font-bold text-emerald-400 text-xs">
                   {player.username.charAt(0)}
                 </div>
                 <div>
                   <div className="font-semibold text-zinc-200 truncate max-w-[90px]">{player.username}</div>
-                  <div className="text-[10px] font-mono text-zinc-500">{player.distance}m away</div>
+                  <div className="text-[10px] text-zinc-500">{player.distance}m away</div>
                 </div>
               </div>
 
@@ -610,7 +702,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     targetCoords: player.position,
                   });
                 }}
-                className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-[10px] font-mono transition-colors"
+                className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-[10px] transition-colors"
                 title={`Follow ${player.username}`}
               >
                 Follow
@@ -619,6 +711,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           ))}
         </div>
       </div>
+
+      {/* Rename Bot Modal */}
+      <RenameBotModal
+        isOpen={showRenameModal}
+        onClose={() => setShowRenameModal(false)}
+        currentName={botState.username}
+        onNameChanged={(newName) => {
+          loadSaaSData();
+        }}
+      />
     </div>
   );
 };

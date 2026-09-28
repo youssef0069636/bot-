@@ -18,17 +18,16 @@ app.use(express.json());
 
 // In-memory server logs & audit trail
 const serverLogs: Array<{ id: string; timestamp: string; level: string; message: string }> = [
-  { id: '1', timestamp: new Date().toISOString(), level: 'INFO', message: 'Minecraft Control Center gateway initialized' },
+  { id: '1', timestamp: new Date().toISOString(), level: 'INFO', message: 'BOTCLOUD SaaS Engine initialized' },
 ];
 
-// Health Check Endpoint (Requirement 20)
+// Health Check Endpoint
 app.get('/api/health', (req: Request, res: Response) => {
   const status = mineflayerService.getStatus();
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
-    version: '1.0.0',
-    service: 'Minecraft Control Center Core with Real Mineflayer Engine',
+    service: 'BOTCLOUD SaaS Core with Real Mineflayer Engine',
     botEngine: {
       connected: status.connected,
       isConnecting: status.isConnecting,
@@ -66,7 +65,7 @@ app.post('/api/server/test-ping', async (req: Request, res: Response) => {
       success: true,
       online: true,
       latency,
-      message: `Successfully connected to ${targetHost}:${targetPort}! Port is open and ready.`,
+      message: `Successfully connected to ${targetHost}:${targetPort}! Port is open.`,
     });
   });
 
@@ -75,7 +74,7 @@ app.post('/api/server/test-ping', async (req: Request, res: Response) => {
     res.json({
       success: false,
       online: false,
-      error: `Connection timed out after 4000ms. The server at ${targetHost}:${targetPort} may be offline, sleeping, or blocked by a firewall.`,
+      error: `Connection timed out after 4000ms. Server at ${targetHost}:${targetPort} may be offline.`,
     });
   });
 
@@ -83,9 +82,9 @@ app.post('/api/server/test-ping', async (req: Request, res: Response) => {
     socket.destroy();
     let advice = err.message;
     if (err.code === 'ECONNREFUSED') {
-      advice = `Port ${targetPort} is closed or rejected connection. Make sure your server (e.g. Aternos, Falix, Paper) is STARTED and you are using the exact dynamic port.`;
+      advice = `Port ${targetPort} is closed or rejected connection. Make sure the Minecraft server is started and the port is correct.`;
     } else if (err.code === 'ENOTFOUND') {
-      advice = `Host "${targetHost}" could not be resolved. Please check the domain or IP address spelling.`;
+      advice = `Host "${targetHost}" could not be resolved. Please check hostname.`;
     }
     res.json({
       success: false,
@@ -186,7 +185,7 @@ app.post('/api/bot/logs/clear', (req: Request, res: Response) => {
   res.json({ success: true });
 });
 
-// AI Planner API using Gemini (Requirement 6)
+// AI Planner API using Gemini
 app.post('/api/ai/plan', async (req: Request, res: Response) => {
   const { prompt, currentState, players } = req.body;
 
@@ -194,10 +193,9 @@ app.post('/api/ai/plan', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Prompt is required' });
   }
 
-  // If Gemini API key is configured, use Gemini 3.8 Flash for advanced natural language understanding
   if (process.env.GEMINI_API_KEY) {
     try {
-      const ai = new GoogleGenAI();
+      const ai = new GoogleGenAI({});
       const systemInstruction = `You are an expert Minecraft AI command and pathfinding planner.
 Convert natural language user instructions into a strict JSON structured action for a Minecraft bot.
 
@@ -222,7 +220,7 @@ Output strictly valid JSON with this exact schema:
 Evaluate danger: void damage (Y < -60) is dangerous. Lava pockets or falling hazard is caution.`;
 
       const response = await ai.models.generateContent({
-        model: 'gemini-3.8-flash',
+        model: 'gemini-2.5-flash',
         contents: `Current Bot State: Position X=${currentState?.position?.x ?? 0}, Y=${currentState?.position?.y ?? 64}, Z=${currentState?.position?.z ?? 0}, Dimension=${currentState?.dimension || 'overworld'}.
 Players nearby: ${JSON.stringify(players || [])}.
 User instruction: "${prompt}"`,
@@ -238,7 +236,7 @@ User instruction: "${prompt}"`,
         return res.json({
           success: true,
           plan: parsed,
-          provider: 'gemini-3.8-flash',
+          provider: 'gemini-2.5-flash',
         });
       }
     } catch (err: unknown) {
@@ -277,11 +275,11 @@ async function startServer() {
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[MCC] Server running at http://0.0.0.0:${PORT}`);
+    console.log(`[BOTCLOUD] SaaS Platform running at http://0.0.0.0:${PORT}`);
   });
 }
 
 startServer().catch((err) => {
-  console.error('[MCC] Failed to start server:', err);
+  console.error('[BOTCLOUD] Failed to start server:', err);
   process.exit(1);
 });

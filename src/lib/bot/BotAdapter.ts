@@ -19,8 +19,17 @@ export interface BotMoveParams {
 export interface BotAdapter {
   readonly mode: 'mock' | 'remote';
 
-  connect(): Promise<boolean>;
+  // Lifecycle
+  connect(params?: any): Promise<boolean>;
   disconnect(): Promise<boolean>;
+  restart(): Promise<boolean>;
+  getStatus(): string;
+  getPosition(): Coordinates;
+  getHealth(): number;
+  getFood(): number;
+  getVersion(): string;
+  sendChat(message: string): Promise<boolean>;
+  getConsole(limit?: number): LogEntry[];
   
   // Movement & physics
   move(direction: 'forward' | 'back' | 'left' | 'right', active: boolean): void;
