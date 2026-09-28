@@ -146,6 +146,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (err.code === 'auth/popup-closed-by-user') {
         return { success: false, error: 'Sign-in window was closed.' };
       }
+      if (err.code === 'auth/unauthorized-domain') {
+        return {
+          success: false,
+          error: 'النطاق الحالي غير مضاف في Firebase Authentication. يرجى إضافة bot-aternos.vercel.app في قائمة Authorized Domains في لوحة تحكم Firebase.',
+        };
+      }
       return { success: false, error: err.message || 'Google sign-in failed.' };
     }
   };

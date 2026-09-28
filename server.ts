@@ -16,6 +16,17 @@ const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
 app.use(express.json());
 
+// CORS headers for external deployments (e.g. Vercel: bot-aternos.vercel.app)
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
 // In-memory server logs & audit trail
 const serverLogs: Array<{ id: string; timestamp: string; level: string; message: string }> = [
   { id: '1', timestamp: new Date().toISOString(), level: 'INFO', message: 'BOTCLOUD SaaS Engine initialized' },
