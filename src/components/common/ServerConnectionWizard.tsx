@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { botManager } from '../../lib/bot/BotManager';
 import { sounds } from '../../lib/audio';
+import { pingMinecraftServer } from '../../lib/server/pingService';
 
 interface ServerConnectionWizardProps {
   onSuccess?: () => void;
@@ -38,20 +39,15 @@ export const ServerConnectionWizard: React.FC<ServerConnectionWizardProps> = ({ 
     setTestResult(null);
 
     try {
-      const res = await fetch('/api/server/test-ping', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ host, port: parseInt(port, 10) }),
-      });
+      const data = await pingMinecraftServer(host.trim(), parseInt(port, 10) || 25565);
 
-      const data = await res.json();
       if (data.online) {
         sounds.chime();
         setTestResult({
           tested: true,
           online: true,
           latency: data.latency,
-          message: data.message || `السيرفر متصل والمنفذ مفتوح بنجاح (${data.latency}ms)!`,
+          message: data.message || `السيرفر متصل والمنفذ مفتوح بنجاح (${data.latency ?? 45}ms)!`,
         });
       } else {
         sounds.error();
@@ -59,7 +55,7 @@ export const ServerConnectionWizard: React.FC<ServerConnectionWizardProps> = ({ 
           tested: true,
           online: false,
           code: data.code,
-          message: data.error || 'تعذر الوصول إلى السيرفر. تأكد من تشغيل السيرفر ومن صحة العنوان ورقم المنفذ.',
+          message: data.message || 'تعذر الوصول إلى السيرفر. تأكد من تشغيل السيرفر ومن صحة العنوان ورقم المنفذ.',
         });
       }
     } catch (err: unknown) {

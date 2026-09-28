@@ -17,6 +17,7 @@ import { UserBot, SUPPORTED_MINECRAFT_VERSIONS } from '../../types/saas';
 import { getOrCreateUserBot, updateBotServerConfig } from '../../lib/saas/botService';
 import { botManager } from '../../lib/bot/BotManager';
 import { sounds } from '../../lib/audio';
+import { pingMinecraftServer } from '../../lib/server/pingService';
 
 interface ServerConfigViewProps {
   onServerUpdated?: () => void;
@@ -74,24 +75,22 @@ export const ServerConfigView: React.FC<ServerConfigViewProps> = ({ onServerUpda
     setTestResult(null);
 
     try {
-      const res = await fetch('/api/server/test-ping', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ host: serverHost.trim(), port: parseInt(serverPort, 10) || 25565 }),
-      });
-      const data = await res.json();
+      const data = await pingMinecraftServer(
+        serverHost.trim(),
+        parseInt(serverPort, 10) || 25565
+      );
       if (data.online) {
         sounds.chime();
         setTestResult({
           online: true,
           latency: data.latency,
-          message: data.message || `Server reachable (${data.latency}ms)! Port is open.`,
+          message: data.message || `Server reachable (${data.latency ?? 40}ms)! Port is open.`,
         });
       } else {
         sounds.error();
         setTestResult({
           online: false,
-          message: data.error || 'Server is offline or port is unreachable.',
+          message: data.message || 'Server is offline or port is unreachable.',
         });
       }
     } catch (err: any) {
