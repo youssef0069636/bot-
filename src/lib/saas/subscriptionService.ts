@@ -42,37 +42,53 @@ export function calculateFreeSessionExpiration(fromDate: Date = new Date(), hour
  * By default, any registered user starts with Free plan (24h per session).
  */
 export async function getUserSubscription(userId: string): Promise<UserSubscription> {
-  const subRef = doc(db, 'subscriptions', userId);
-  const snap = await getDoc(subRef);
-
-  if (snap.exists()) {
-    const data = snap.data() as UserSubscription;
-    // Check if Pro subscription is expired
-    if (data.plan === 'pro' && data.expiresAt) {
-      const expDate = new Date(data.expiresAt);
-      if (Date.now() > expDate.getTime() && data.status === 'active') {
-        const updated = { ...data, status: 'expired' as const, updatedAt: new Date().toISOString() };
-        await updateDoc(subRef, { status: 'expired', updatedAt: new Date().toISOString() });
-        return updated;
-      }
-    }
-    return data;
-  }
-
-  // Initialize Free subscription default
-  const newSub: UserSubscription = {
+  const fallbackSub: UserSubscription = {
     id: userId,
     userId,
     plan: 'free',
     status: 'active',
     startedAt: new Date().toISOString(),
-    expiresAt: null, // Free users use per-session 24h timer in BotSession
+    expiresAt: null,
     lifetime: false,
     updatedAt: new Date().toISOString(),
   };
 
-  await setDoc(subRef, newSub);
-  return newSub;
+  try {
+    const subRef = doc(db, 'subscriptions', userId);
+    const snapPromise = getDoc(subRef);
+    const timeoutPromise = new Promise<null>((_, reject) =>
+      setTimeout(() => reject(new Error('Timeout fetching subscription')), 2500)
+    );
+    const snap = await Promise.race([snapPromise, timeoutPromise]);
+
+    if (snap && snap.exists()) {
+      const data = snap.data() as UserSubscription;
+      // Check if Pro subscription is expired
+      if (data.plan === 'pro' && data.expiresAt) {
+        const expDate = new Date(data.expiresAt);
+        if (Date.now() > expDate.getTime() && data.status === 'active') {
+          const updated = { ...data, status: 'expired' as const, updatedAt: new Date().toISOString() };
+          try {
+            await updateDoc(subRef, { status: 'expired', updatedAt: new Date().toISOString() });
+          } catch {
+            // Ignore offline update error
+          }
+          return updated;
+        }
+      }
+      return data;
+    }
+
+    // Initialize Free subscription default
+    try {
+      await setDoc(subRef, fallbackSub);
+    } catch {
+      // Ignore offline write error
+    }
+    return fallbackSub;
+  } catch {
+    return fallbackSub;
+  }
 }
 
 /**

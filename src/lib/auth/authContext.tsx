@@ -38,24 +38,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Sync profile from Firestore or initialize if first time
   const syncUserProfile = async (user: FirebaseUser): Promise<UserProfile> => {
-    const userRef = doc(db, 'users', user.uid);
-    const snap = await getDoc(userRef);
-
     const isDesignatedAdmin = user.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
 
-    if (snap.exists()) {
-      const existing = snap.data() as UserProfile;
-      // Ensure designated admin always keeps admin role
-      if (isDesignatedAdmin && existing.role !== 'admin') {
-        existing.role = 'admin';
-        await updateDoc(userRef, { role: 'admin' });
-      }
-      setProfile(existing);
-      return existing;
-    }
-
-    // New profile creation
-    const newProfile: UserProfile = {
+    const fallbackProfile: UserProfile = {
       id: user.uid,
       email: user.email || '',
       displayName: user.displayName || user.email?.split('@')[0] || 'BotCloud User',
@@ -65,13 +50,45 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       lastLoginAt: new Date().toISOString(),
     };
 
-    await setDoc(userRef, newProfile);
-    // Initialize subscription & single bot record
-    await getUserSubscription(user.uid);
-    await getOrCreateUserBot(user.uid, user.email || '', newProfile.displayName);
+    try {
+      const userRef = doc(db, 'users', user.uid);
+      const snapPromise = getDoc(userRef);
+      const timeoutPromise = new Promise<null>((_, reject) =>
+        setTimeout(() => reject(new Error('Timeout syncing user profile')), 2500)
+      );
+      const snap = await Promise.race([snapPromise, timeoutPromise]);
 
-    setProfile(newProfile);
-    return newProfile;
+      if (snap && snap.exists()) {
+        const existing = snap.data() as UserProfile;
+        // Ensure designated admin always keeps admin role
+        if (isDesignatedAdmin && existing.role !== 'admin') {
+          existing.role = 'admin';
+          try {
+            await updateDoc(userRef, { role: 'admin' });
+          } catch {
+            // Ignore offline update error
+          }
+        }
+        setProfile(existing);
+        return existing;
+      }
+
+      // New profile creation
+      try {
+        await setDoc(userRef, fallbackProfile);
+        await getUserSubscription(user.uid);
+        await getOrCreateUserBot(user.uid, user.email || '', fallbackProfile.displayName);
+      } catch {
+        // Ignore offline write error
+      }
+
+      setProfile(fallbackProfile);
+      return fallbackProfile;
+    } catch {
+      // Offline fallback
+      setProfile(fallbackProfile);
+      return fallbackProfile;
+    }
   };
 
   useEffect(() => {
@@ -80,8 +97,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (user) {
         try {
           await syncUserProfile(user);
-        } catch (err) {
-          console.error('Error syncing profile:', err);
+        } catch {
+          // Handled gracefully inside syncUserProfile
         }
       } else {
         setProfile(null);

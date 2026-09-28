@@ -39,12 +39,16 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
 export async function getSystemSettings(): Promise<SystemConfig> {
   try {
     const docRef = doc(db, 'systemSettings', 'config');
-    const snap = await getDoc(docRef);
-    if (snap.exists()) {
+    const snapPromise = getDoc(docRef);
+    const timeoutPromise = new Promise<null>((_, reject) =>
+      setTimeout(() => reject(new Error('Timeout loading system settings')), 2500)
+    );
+    const snap = await Promise.race([snapPromise, timeoutPromise]);
+    if (snap && snap.exists()) {
       return { ...DEFAULT_SYSTEM_CONFIG, ...(snap.data() as SystemConfig) };
     }
-  } catch (err) {
-    console.error('Error loading system settings:', err);
+  } catch {
+    // Offline or database initializing: gracefully use default configuration
   }
   return DEFAULT_SYSTEM_CONFIG;
 }

@@ -23,18 +23,12 @@ export async function getOrCreateUserBot(
 ): Promise<UserBot> {
   const botDocId = `bot_${userId}`;
   const botRef = doc(db, 'bots', botDocId);
-  const snap = await getDoc(botRef);
 
-  if (snap.exists()) {
-    return snap.data() as UserBot;
-  }
-
-  // Generate clean default bot name
   const cleanUsername =
     defaultName ||
     `Bot_${userEmail.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '').substring(0, 10)}`;
 
-  const newBot: UserBot = {
+  const fallbackBot: UserBot = {
     id: botDocId,
     userId,
     username: cleanUsername || 'BotCloud_User',
@@ -47,8 +41,26 @@ export async function getOrCreateUserBot(
     createdAt: new Date().toISOString(),
   };
 
-  await setDoc(botRef, newBot);
-  return newBot;
+  try {
+    const snapPromise = getDoc(botRef);
+    const timeoutPromise = new Promise<null>((_, reject) =>
+      setTimeout(() => reject(new Error('Timeout fetching bot')), 2500)
+    );
+    const snap = await Promise.race([snapPromise, timeoutPromise]);
+
+    if (snap && snap.exists()) {
+      return snap.data() as UserBot;
+    }
+
+    try {
+      await setDoc(botRef, fallbackBot);
+    } catch {
+      // Ignore offline write error
+    }
+    return fallbackBot;
+  } catch {
+    return fallbackBot;
+  }
 }
 
 /**
