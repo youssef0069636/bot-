@@ -7,6 +7,8 @@ export default function handler(req, res) {
     'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version'
   );
 
+  res.setHeader('Cache-Control', 'public, s-maxage=5, stale-while-revalidate=15');
+
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }

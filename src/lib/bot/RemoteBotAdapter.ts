@@ -87,25 +87,51 @@ export class RemoteBotAdapter implements BotAdapter {
       isOnline: false,
     };
 
-    // Always poll state when Remote adapter is instantiated
-    this.startPolling();
+    // Initial state check on startup
+    this.checkInitialState();
+    this.setupVisibilityListener();
   }
 
   public updateConfig(url: string, apiKey: string) {
     this.endpointUrl = url ? url.replace(/\/$/, '') : '';
     this.apiKey = apiKey;
-    this.startPolling();
-  }
-
-  private startPolling() {
-    this.stopPolling();
     this.fetchState();
-    this.pollInterval = setInterval(() => {
-      this.fetchState();
-    }, 1200);
   }
 
-  private stopPolling() {
+  private checkInitialState() {
+    this.fetchState().then(() => {
+      if (this.state.connected) {
+        this.startPolling();
+      }
+    });
+  }
+
+  private setupVisibilityListener() {
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') {
+          this.stopPolling();
+        } else if (this.state.connected) {
+          this.fetchState();
+          this.startPolling();
+        }
+      });
+    }
+  }
+
+  public startPolling(intervalMs: number = 3000) {
+    this.stopPolling();
+    this.pollInterval = setInterval(() => {
+      // Do not spam serverless if bot is offline
+      if (!this.state.connected && this.state.status !== 'connecting') {
+        this.stopPolling();
+        return;
+      }
+      this.fetchState();
+    }, intervalMs);
+  }
+
+  public stopPolling() {
     if (this.pollInterval) {
       clearInterval(this.pollInterval);
       this.pollInterval = null;
@@ -171,6 +197,13 @@ export class RemoteBotAdapter implements BotAdapter {
       }
       if (data.chat) this.cachedChat = data.chat;
       this.notifyState();
+
+      // Stop polling if bot is offline to protect serverless quotas
+      if (!data.state.connected && this.state.status !== 'connecting') {
+        this.stopPolling();
+      }
+    } else {
+      this.stopPolling();
     }
   }
 
@@ -212,10 +245,12 @@ export class RemoteBotAdapter implements BotAdapter {
       this.state.status = 'online';
       this.addLog('SUCCESS', res.message || 'Connected to Minecraft server!', 'bot');
       await this.fetchState();
+      this.startPolling(2500);
       return true;
     } else {
       this.state.connected = false;
       this.state.status = 'error';
+      this.stopPolling();
       const errMsg = res?.message || res?.error || 'Could not connect to server. Check IP, Port, and Cracked status.';
       this.lastError = errMsg;
       this.addLog('ERROR', errMsg, 'system');
@@ -225,6 +260,7 @@ export class RemoteBotAdapter implements BotAdapter {
   }
 
   public async disconnect(): Promise<boolean> {
+    this.stopPolling();
     await this.request('/api/bot/disconnect', { method: 'POST' });
     this.state.connected = false;
     this.state.status = 'offline';
