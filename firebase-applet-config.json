@@ -1,12 +1,12 @@
 {
   "projectId": "bot-aternos-3b15f",
-  "appId": "1:133466515824:web:ff49ff9a026a0b7ab987b5",
+  "appId": "1:133466515824:web:241ccc187f807090b987b5",
   "apiKey": "AIzaSyD1365kqadGEZWO8hdQneGI-HgoGSFczqc",
   "authDomain": "bot-aternos-3b15f.firebaseapp.com",
-  "firestoreDatabaseId": "",
+  "firestoreDatabaseId": "ai-studio-minecraftcontrol-299e39a9-f721-40ad-b6bf-e0c2646c0b84",
   "storageBucket": "bot-aternos-3b15f.firebasestorage.app",
   "messagingSenderId": "133466515824",
-  "measurementId": "G-V0FGTYMGW3",
-  "oAuthClientId": "",
+  "measurementId": "",
+  "oAuthClientId": "133466515824-mt1u6ig9n92tp20c03bdrum9pn7qf1a0.apps.googleusercontent.com",
   "recaptchaSiteKey": ""
 }

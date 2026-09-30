@@ -3,7 +3,7 @@ import pathfinderPkg from 'mineflayer-pathfinder';
 import mineflayerPvpPkg from 'mineflayer-pvp';
 import vec3Pkg from 'vec3';
 import { GoogleGenAI } from '@google/genai';
-import { BotInventory, BotState, BotTask, ChatMessage, InventorySlot, LogEntry, PlayerInfo } from '../types/minecraft.ts';
+import type { BotInventory, BotState, BotTask, ChatMessage, InventorySlot, LogEntry, PlayerInfo } from '../types/minecraft';
 
 const mineflayer: any = (mineflayerPkg as any).default || mineflayerPkg;
 const { pathfinder, Movements, goals }: any = (pathfinderPkg as any).default || pathfinderPkg;

@@ -1,10 +1,11 @@
 import express, { Request, Response } from 'express';
 import dotenv from 'dotenv';
 import path from 'path';
+import fs from 'fs';
 import net from 'net';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI } from '@google/genai';
-import { mineflayerService } from './src/server/mineflayerService.ts';
+import { mineflayerService } from './src/server/mineflayerService';
 
 dotenv.config();
 
@@ -12,7 +13,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+const PORT = parseInt(process.env.PORT || '3000', 10);
 
 app.use(express.json());
 
@@ -270,7 +271,18 @@ app.get('/api/admin/logs', (req: Request, res: Response) => {
 
 // Vite middleware in development vs Static serving in production
 async function startServer() {
-  if (process.env.NODE_ENV !== 'production') {
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  // Determine dist directory path safely regardless of where server is executed
+  const possibleDistPaths = [
+    path.resolve(__dirname, 'dist'),
+    path.resolve(__dirname),
+    path.resolve(process.cwd(), 'dist'),
+  ];
+  const distPath = possibleDistPaths.find((p) => fs.existsSync(path.join(p, 'index.html'))) || path.resolve(process.cwd(), 'dist');
+  const indexHtmlExists = fs.existsSync(path.join(distPath, 'index.html'));
+
+  if (!isProduction && !indexHtmlExists) {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -278,19 +290,18 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.resolve(__dirname, 'dist');
     app.use(express.static(distPath));
     app.get('*', (req: Request, res: Response) => {
-      res.sendFile(path.resolve(distPath, 'index.html'));
+      res.sendFile(path.join(distPath, 'index.html'));
     });
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[BOTCLOUD] SaaS Platform running at http://0.0.0.0:${PORT}`);
+    console.log(`[BOTCLOUD] SaaS Platform successfully listening on http://0.0.0.0:${PORT} (PORT=${PORT}, NODE_ENV=${process.env.NODE_ENV || 'development'})`);
   });
 }
 
 startServer().catch((err) => {
-  console.error('[BOTCLOUD] Failed to start server:', err);
+  console.error('[BOTCLOUD] Fatal startup failure:', err);
   process.exit(1);
 });
