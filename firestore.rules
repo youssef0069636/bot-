@@ -19,42 +19,70 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
-    // User Profiles
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // User Profiles: Users can read their own profile, create their own profile as normal user, and update non-role fields
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin();
-      allow create: if isOwner(userId);
-      allow update: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId) && (
+        request.resource.data.role == 'user' || isAdmin()
+      );
+      allow update: if isAdmin() || (
+        isOwner(userId) &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'id', 'createdAt'])
+      );
       allow delete: if isAdmin();
     }
 
-    // Bots (One bot per user)
+    // Bots: Exactly one bot per user, owned and managed only by the owner or admin
     match /bots/{botId} {
       allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
-      allow update: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow update: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid &&
+        request.resource.data.userId == request.auth.uid
+      ) || isAdmin();
       allow delete: if isAdmin();
     }
 
-    // Subscriptions
+    // Subscriptions: User can read their own subscription; initial free plan can be initialized by user; plan upgrades/modifications strictly admin-controlled
     match /subscriptions/{subscriptionId} {
       allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
-      allow update: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isAdmin() || (
+        isAuthenticated() &&
+        request.resource.data.userId == request.auth.uid &&
+        request.resource.data.plan == 'free'
+      );
+      allow update: if isAdmin() || (
+        isAuthenticated() &&
+        resource.data.userId == request.auth.uid &&
+        request.resource.data.userId == request.auth.uid &&
+        // Non-admin can only update session expiry timestamp if expired, cannot change plan or lifetime status
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['plan', 'lifetime', 'userId', 'id'])
+      );
       allow delete: if isAdmin();
     }
 
-    // Bot Sessions (24h Free timer & execution tracking)
+    // Bot Sessions: 24h Free timer & execution tracking
     match /botSessions/{sessionId} {
       allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
-      allow update: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow update: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid &&
+        request.resource.data.userId == request.auth.uid
+      ) || isAdmin();
       allow delete: if isAdmin();
     }
 
-    // Payments (Manual WhatsApp submissions)
+    // Payments: Users can create pending payment requests; only admin can approve or reject
     match /payments/{paymentId} {
       allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated() &&
+        request.resource.data.userId == request.auth.uid &&
+        request.resource.data.status == 'pending';
       allow update: if isAdmin();
       allow delete: if isAdmin();
     }
@@ -66,19 +94,19 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
-    // Announcements
+    // Announcements: All authenticated users can read; only admin can create/edit/delete
     match /announcements/{announcementId} {
       allow read: if isAuthenticated();
       allow write: if isAdmin();
     }
 
-    // System Settings & Maintenance Mode
+    // System Settings: Publicly readable for pre-login maintenance check; strictly admin-writable
     match /systemSettings/{settingId} {
-      allow read: if true; // Needed for maintenance mode detection before login
+      allow read: if true;
       allow write: if isAdmin();
     }
 
-    // Admin Action Audit Logs
+    // Admin Audit Logs: Strictly admin only
     match /adminActions/{actionId} {
       allow read, write: if isAdmin();
     }

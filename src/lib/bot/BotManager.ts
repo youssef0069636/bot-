@@ -71,12 +71,8 @@ class BotManagerService {
 
     try {
       const botDocRef = doc(db, 'bots', `bot_${uid}`);
-      const snapPromise = getDoc(botDocRef);
-      const timeoutPromise = new Promise<null>((_, reject) =>
-        setTimeout(() => reject(new Error('Timeout syncing bot config')), 2500)
-      );
-      const snap = await Promise.race([snapPromise, timeoutPromise]);
-      if (snap && snap.exists()) {
+      const snap = await getDoc(botDocRef);
+      if (snap.exists()) {
         const botData = snap.data() as UserBot;
         this.updateSettings({
           botUsername: botData.username || this.settings.botUsername,
@@ -88,8 +84,8 @@ class BotManagerService {
         });
         return botData;
       }
-    } catch {
-      // Offline or database initializing: retain current in-memory settings
+    } catch (err) {
+      console.warn('[BotManager] Could not sync bot config from Firestore, retaining in-memory settings:', err);
     }
     return null;
   }

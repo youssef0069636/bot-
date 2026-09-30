@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Bot, Edit3, CheckCircle2, AlertTriangle, RefreshCw, X } from 'lucide-react';
 import { useAuth } from '../../lib/auth/authContext';
-import { doc, setDoc } from 'firebase/firestore';
-import { db } from '../../lib/firebase';
 import { botManager } from '../../lib/bot/BotManager';
 import { sounds } from '../../lib/audio';
 

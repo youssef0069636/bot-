@@ -34,8 +34,9 @@ import {
   getActiveBotSession,
   startBotSession,
   endBotSession,
+  subscribeToUserSubscription,
 } from '../../lib/saas/subscriptionService';
-import { fetchAnnouncements } from '../../lib/saas/adminService';
+import { fetchAnnouncements, subscribeToAnnouncements } from '../../lib/saas/adminService';
 import { HeartIcon, FoodIcon, ArmorIcon } from '../common/MinecraftIcons';
 import { ServerConnectionWizard } from '../common/ServerConnectionWizard';
 import { sounds } from '../../lib/audio';
@@ -68,29 +69,43 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [showWizard, setShowWizard] = useState(false);
   const [showRenameModal, setShowRenameModal] = useState(false);
 
-  useEffect(() => {
-    if (profile?.id) {
-      loadSaaSData();
-    }
-  }, [profile?.id]);
-
   const loadSaaSData = async () => {
     if (!profile?.id) return;
     try {
-      const [sub, anns] = await Promise.all([
+      const botId = `bot_${profile.id}`;
+      const [sub, anns, sess] = await Promise.all([
         getUserSubscription(profile.id),
         fetchAnnouncements(),
+        getActiveBotSession(profile.id, botId),
       ]);
       setSubscription(sub);
       setAnnouncements(anns.filter((a) => a.active));
-
-      const botId = `bot_${profile.id}`;
-      const sess = await getActiveBotSession(profile.id, botId);
       setActiveSession(sess);
     } catch (err) {
-      console.error('Error loading dashboard SaaS data:', err);
+      console.warn('Error loading dashboard SaaS data:', err);
     }
   };
+
+  useEffect(() => {
+    if (!profile?.id) return;
+
+    loadSaaSData();
+
+    // 1. Realtime subscription listener
+    const unsubSub = subscribeToUserSubscription(profile.id, (sub) => {
+      setSubscription(sub);
+    });
+
+    // 2. Realtime announcements listener
+    const unsubAnns = subscribeToAnnouncements((anns) => {
+      setAnnouncements(anns.filter((a) => a.active));
+    });
+
+    return () => {
+      unsubSub();
+      unsubAnns();
+    };
+  }, [profile?.id]);
 
   // Live timer interval for Free 24h session / Pro expiration
   useEffect(() => {

@@ -9,6 +9,7 @@ import {
   orderBy,
   limit,
   deleteDoc,
+  onSnapshot,
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import {
@@ -34,21 +35,41 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
 };
 
 /**
+ * Subscribes to global system settings in realtime
+ */
+export function subscribeToSystemSettings(
+  onUpdate: (config: SystemConfig) => void,
+  onError?: (err: Error) => void
+): () => void {
+  const docRef = doc(db, 'systemSettings', 'config');
+  return onSnapshot(
+    docRef,
+    (snap) => {
+      if (snap.exists()) {
+        onUpdate({ ...DEFAULT_SYSTEM_CONFIG, ...(snap.data() as SystemConfig) });
+      } else {
+        onUpdate(DEFAULT_SYSTEM_CONFIG);
+      }
+    },
+    (err) => {
+      console.warn('[AdminService] Realtime system settings listener error:', err);
+      if (onError) onError(err);
+    }
+  );
+}
+
+/**
  * Gets global system settings
  */
 export async function getSystemSettings(): Promise<SystemConfig> {
   try {
     const docRef = doc(db, 'systemSettings', 'config');
-    const snapPromise = getDoc(docRef);
-    const timeoutPromise = new Promise<null>((_, reject) =>
-      setTimeout(() => reject(new Error('Timeout loading system settings')), 2500)
-    );
-    const snap = await Promise.race([snapPromise, timeoutPromise]);
-    if (snap && snap.exists()) {
+    const snap = await getDoc(docRef);
+    if (snap.exists()) {
       return { ...DEFAULT_SYSTEM_CONFIG, ...(snap.data() as SystemConfig) };
     }
-  } catch {
-    // Offline or database initializing: gracefully use default configuration
+  } catch (err) {
+    console.warn('[AdminService] Fallback to default system configuration:', err);
   }
   return DEFAULT_SYSTEM_CONFIG;
 }
@@ -126,6 +147,27 @@ export async function fetchAllPayments(): Promise<PaymentRecord[]> {
 }
 
 /**
+ * Subscribes to announcements in realtime
+ */
+export function subscribeToAnnouncements(
+  onUpdate: (announcements: Announcement[]) => void,
+  onError?: (err: Error) => void
+): () => void {
+  const q = query(collection(db, 'announcements'), orderBy('createdAt', 'desc'), limit(10));
+  return onSnapshot(
+    q,
+    (snap) => {
+      const list = snap.docs.map((d) => d.data() as Announcement);
+      onUpdate(list);
+    },
+    (err) => {
+      console.warn('[AdminService] Realtime announcements listener error:', err);
+      if (onError) onError(err);
+    }
+  );
+}
+
+/**
  * Fetches announcements
  */
 export async function fetchAnnouncements(): Promise<Announcement[]> {
@@ -133,7 +175,8 @@ export async function fetchAnnouncements(): Promise<Announcement[]> {
     const q = query(collection(db, 'announcements'), orderBy('createdAt', 'desc'), limit(10));
     const snap = await getDocs(q);
     return snap.docs.map((d) => d.data() as Announcement);
-  } catch {
+  } catch (err) {
+    console.warn('[AdminService] Failed to fetch announcements:', err);
     return [];
   }
 }

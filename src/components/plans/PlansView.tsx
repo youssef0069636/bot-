@@ -16,9 +16,9 @@ import {
 import confetti from 'canvas-confetti';
 import { useAuth } from '../../lib/auth/authContext';
 import { UserSubscription, PaymentRecord, SystemConfig } from '../../types/saas';
-import { getUserSubscription } from '../../lib/saas/subscriptionService';
+import { getUserSubscription, subscribeToUserSubscription } from '../../lib/saas/subscriptionService';
 import { createPaymentRequest, getUserPayments } from '../../lib/saas/paymentService';
-import { getSystemSettings } from '../../lib/saas/adminService';
+import { getSystemSettings, subscribeToSystemSettings } from '../../lib/saas/adminService';
 import { sounds } from '../../lib/audio';
 
 interface PlansViewProps {
@@ -41,25 +41,32 @@ export const PlansView: React.FC<PlansViewProps> = ({ onPlanActivated }) => {
   const [copiedNumber, setCopiedNumber] = useState(false);
 
   useEffect(() => {
-    loadData();
+    if (!profile?.id) return;
+
+    getUserPayments(profile.id).then(setPayments).catch(console.warn);
+
+    const unsubSub = subscribeToUserSubscription(profile.id, (sub) => {
+      setSubscription(sub);
+      setLoading(false);
+    });
+
+    const unsubConfig = subscribeToSystemSettings((config) => {
+      setSystemConfig(config);
+    });
+
+    return () => {
+      unsubSub();
+      unsubConfig();
+    };
   }, [profile?.id]);
 
   const loadData = async () => {
     if (!profile?.id) return;
-    setLoading(true);
     try {
-      const [sub, config, payHistory] = await Promise.all([
-        getUserSubscription(profile.id),
-        getSystemSettings(),
-        getUserPayments(profile.id),
-      ]);
-      setSubscription(sub);
-      setSystemConfig(config);
+      const payHistory = await getUserPayments(profile.id);
       setPayments(payHistory);
     } catch (err) {
-      console.error('Error loading subscription data:', err);
-    } finally {
-      setLoading(false);
+      console.error('Error loading payment history:', err);
     }
   };
 

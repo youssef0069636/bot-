@@ -7,8 +7,7 @@ import {
   query,
   where,
   getDocs,
-  serverTimestamp,
-  orderBy,
+  onSnapshot,
   limit,
 } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -38,6 +37,42 @@ export function calculateFreeSessionExpiration(fromDate: Date = new Date(), hour
 }
 
 /**
+ * Subscribes to realtime updates for a user's subscription record.
+ * Automatically cleans up listener on unsubscribe.
+ */
+export function subscribeToUserSubscription(
+  userId: string,
+  onUpdate: (sub: UserSubscription) => void,
+  onError?: (err: Error) => void
+): () => void {
+  const subRef = doc(db, 'subscriptions', userId);
+  return onSnapshot(
+    subRef,
+    (snap) => {
+      if (snap.exists()) {
+        onUpdate(snap.data() as UserSubscription);
+      } else {
+        // Fallback default free subscription
+        onUpdate({
+          id: userId,
+          userId,
+          plan: 'free',
+          status: 'active',
+          startedAt: new Date().toISOString(),
+          expiresAt: null,
+          lifetime: false,
+          updatedAt: new Date().toISOString(),
+        });
+      }
+    },
+    (err) => {
+      console.warn('[Subscription] Realtime listener error:', err);
+      if (onError) onError(err);
+    }
+  );
+}
+
+/**
  * Gets or initializes user subscription record in Firestore.
  * By default, any registered user starts with Free plan (24h per session).
  */
@@ -55,13 +90,9 @@ export async function getUserSubscription(userId: string): Promise<UserSubscript
 
   try {
     const subRef = doc(db, 'subscriptions', userId);
-    const snapPromise = getDoc(subRef);
-    const timeoutPromise = new Promise<null>((_, reject) =>
-      setTimeout(() => reject(new Error('Timeout fetching subscription')), 2500)
-    );
-    const snap = await Promise.race([snapPromise, timeoutPromise]);
+    const snap = await getDoc(subRef);
 
-    if (snap && snap.exists()) {
+    if (snap.exists()) {
       const data = snap.data() as UserSubscription;
       // Check if Pro subscription is expired
       if (data.plan === 'pro' && data.expiresAt) {
@@ -70,8 +101,8 @@ export async function getUserSubscription(userId: string): Promise<UserSubscript
           const updated = { ...data, status: 'expired' as const, updatedAt: new Date().toISOString() };
           try {
             await updateDoc(subRef, { status: 'expired', updatedAt: new Date().toISOString() });
-          } catch {
-            // Ignore offline update error
+          } catch (updateErr) {
+            console.warn('[Subscription] Failed to mark expired status in Firestore:', updateErr);
           }
           return updated;
         }
@@ -82,11 +113,12 @@ export async function getUserSubscription(userId: string): Promise<UserSubscript
     // Initialize Free subscription default
     try {
       await setDoc(subRef, fallbackSub);
-    } catch {
-      // Ignore offline write error
+    } catch (createErr) {
+      console.warn('[Subscription] Initial subscription creation warning:', createErr);
     }
     return fallbackSub;
-  } catch {
+  } catch (err) {
+    console.warn('[Subscription] Fallback to default Free subscription:', err);
     return fallbackSub;
   }
 }

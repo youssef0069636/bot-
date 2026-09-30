@@ -14,10 +14,12 @@ const firebaseConfig = {
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
-const firestoreDbId = firebaseConfigJson.firestoreDatabaseId;
-export const db = firestoreDbId ? getFirestore(app, firestoreDbId) : getFirestore(app);
+// Use default database by default as required; supports optional VITE_FIREBASE_DATABASE_ID if custom database is provided
+const customDbId = import.meta.env?.VITE_FIREBASE_DATABASE_ID;
+export const db = customDbId && customDbId !== '(default)' ? getFirestore(app, customDbId) : getFirestore(app);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 
 export const ADMIN_EMAIL = 'jeuxapk6@gmail.com';
 export { app };
+

@@ -7,10 +7,36 @@ import {
   query,
   where,
   getDocs,
+  onSnapshot,
   limit,
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { UserBot, SUPPORTED_MINECRAFT_VERSIONS, BotLifecycleStatus } from '../../types/saas';
+
+/**
+ * Subscribes to realtime updates for a user's bot document.
+ * Automatically cleans up listener on unsubscribe.
+ */
+export function subscribeToUserBot(
+  userId: string,
+  onUpdate: (bot: UserBot) => void,
+  onError?: (err: Error) => void
+): () => void {
+  const botDocId = `bot_${userId}`;
+  const botRef = doc(db, 'bots', botDocId);
+  return onSnapshot(
+    botRef,
+    (snap) => {
+      if (snap.exists()) {
+        onUpdate(snap.data() as UserBot);
+      }
+    },
+    (err) => {
+      console.warn('[BotService] Realtime bot listener error:', err);
+      if (onError) onError(err);
+    }
+  );
+}
 
 /**
  * Ensures exactly ONE bot per user.
@@ -42,23 +68,20 @@ export async function getOrCreateUserBot(
   };
 
   try {
-    const snapPromise = getDoc(botRef);
-    const timeoutPromise = new Promise<null>((_, reject) =>
-      setTimeout(() => reject(new Error('Timeout fetching bot')), 2500)
-    );
-    const snap = await Promise.race([snapPromise, timeoutPromise]);
+    const snap = await getDoc(botRef);
 
-    if (snap && snap.exists()) {
+    if (snap.exists()) {
       return snap.data() as UserBot;
     }
 
     try {
       await setDoc(botRef, fallbackBot);
-    } catch {
-      // Ignore offline write error
+    } catch (writeErr) {
+      console.warn('[BotService] Initial bot creation warning:', writeErr);
     }
     return fallbackBot;
-  } catch {
+  } catch (err) {
+    console.warn('[BotService] Fallback to in-memory bot configuration:', err);
     return fallbackBot;
   }
 }

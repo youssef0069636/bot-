@@ -123,6 +123,16 @@ export const AdminDashboard: React.FC = () => {
     );
   }
 
+  const [adminFeedback, setAdminFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // Auto-dismiss feedback after 4 seconds
+  useEffect(() => {
+    if (adminFeedback) {
+      const t = setTimeout(() => setAdminFeedback(null), 4000);
+      return () => clearTimeout(t);
+    }
+  }, [adminFeedback]);
+
   // Derived metrics
   const totalUsers = users.length;
   const freeUsers = subscriptions.filter((s) => s.plan === 'free').length;
@@ -138,24 +148,34 @@ export const AdminDashboard: React.FC = () => {
   const handleApprovePayment = async (paymentId: string) => {
     if (!profile?.email) return;
     sounds.click(1.2);
-    const res = await approvePayment(paymentId, profile.email);
-    if (res.success) {
-      sounds.chime();
-      await loadAllAdminData();
-    } else {
-      alert(`Error: ${res.error}`);
+    try {
+      const res = await approvePayment(paymentId, profile.email);
+      if (res.success) {
+        sounds.chime();
+        setAdminFeedback({ type: 'success', message: 'تمت الموافقة على الدفع وتفعيل الاشتراك بنجاح!' });
+        await loadAllAdminData();
+      } else {
+        setAdminFeedback({ type: 'error', message: res.error || 'فشلت عملية اعتماد الدفع.' });
+      }
+    } catch (err: any) {
+      setAdminFeedback({ type: 'error', message: err?.message || 'حدث خطأ أثناء اعتماد الدفع.' });
     }
   };
 
   const handleRejectPayment = async (paymentId: string) => {
     if (!profile?.email) return;
-    const reason = prompt('Reason for rejection:', 'Payment proof could not be verified on WhatsApp.') || '';
     sounds.click();
-    const res = await rejectPayment(paymentId, profile.email, reason);
-    if (res.success) {
-      await loadAllAdminData();
-    } else {
-      alert(`Error: ${res.error}`);
+    try {
+      const res = await rejectPayment(paymentId, profile.email, 'تم رفض إشعار الدفع من قبل الإدارة.');
+      if (res.success) {
+        sounds.chime();
+        setAdminFeedback({ type: 'success', message: 'تم رفض إشعار الدفع.' });
+        await loadAllAdminData();
+      } else {
+        setAdminFeedback({ type: 'error', message: res.error || 'فشلت عملية رفض الدفع.' });
+      }
+    } catch (err: any) {
+      setAdminFeedback({ type: 'error', message: err?.message || 'حدث خطأ أثناء رفض الدفع.' });
     }
   };
 
@@ -163,18 +183,28 @@ export const AdminDashboard: React.FC = () => {
   const handleSetUserPlan = async (userId: string, plan: 'free' | 'pro' | 'ultra') => {
     if (!profile?.email) return;
     sounds.click();
-    await adminSetUserPlan(userId, plan, profile.email, 1);
-    sounds.chime();
-    await loadAllAdminData();
+    try {
+      await adminSetUserPlan(userId, plan, profile.email, 1);
+      sounds.chime();
+      setAdminFeedback({ type: 'success', message: `تم تحديث باقة المستخدم إلى ${plan.toUpperCase()} بنجاح!` });
+      await loadAllAdminData();
+    } catch (err: any) {
+      setAdminFeedback({ type: 'error', message: err?.message || 'فشل تحديث باقة المستخدم.' });
+    }
   };
 
   // User suspension
   const handleToggleUserSuspension = async (userId: string, currentStatus: string) => {
     if (!profile?.email) return;
     sounds.click();
-    const isSuspended = currentStatus === 'suspended';
-    await adminToggleUserSuspension(userId, !isSuspended, profile.email);
-    await loadAllAdminData();
+    try {
+      const isSuspended = currentStatus === 'suspended';
+      await adminToggleUserSuspension(userId, !isSuspended, profile.email);
+      setAdminFeedback({ type: 'success', message: isSuspended ? 'تم إلغاء تجميد الحساب بنجاح.' : 'تم تجميد الحساب بنجاح.' });
+      await loadAllAdminData();
+    } catch (err: any) {
+      setAdminFeedback({ type: 'error', message: err?.message || 'فشل تغيير حالة الحساب.' });
+    }
   };
 
   // Create announcement
@@ -248,6 +278,24 @@ export const AdminDashboard: React.FC = () => {
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /> Refresh Data
         </button>
       </div>
+
+      {/* Feedback Notification Banner */}
+      {adminFeedback && (
+        <div
+          className={`p-3.5 rounded-xl border flex items-center gap-2.5 animate-in fade-in ${
+            adminFeedback.type === 'success'
+              ? 'bg-emerald-950/40 border-emerald-800/60 text-emerald-300'
+              : 'bg-red-950/40 border-red-800/60 text-red-300'
+          }`}
+        >
+          {adminFeedback.type === 'success' ? (
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+          ) : (
+            <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0" />
+          )}
+          <span className="font-bold flex-1">{adminFeedback.message}</span>
+        </div>
+      )}
 
       {/* Admin Navigation Tabs */}
       <div className="flex items-center gap-2 overflow-x-auto pb-1 border-b border-zinc-800">
